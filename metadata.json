@@ -1,0 +1,5 @@
+{
+  "name": "ResumeFit",
+  "description": "Tailor your resume to specific job descriptions. Upload your resume, paste job details, and get AI-powered analysis on fit, missing skills, and tailoring suggestions.",
+  "requestFramePermissions": []
+}
