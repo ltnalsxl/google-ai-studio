@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { AnalysisResult, UserContextItem } from "../types";
+import { AnalysisResult, UserContextItem, Language } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -82,7 +82,8 @@ const analysisSchema: Schema = {
 
 export const analyzeJobFit = async (
   userContext: UserContextItem[],
-  jobDescription: string
+  jobDescription: string,
+  language: Language
 ): Promise<AnalysisResult> => {
   try {
     const model = "gemini-2.5-flash";
@@ -101,15 +102,17 @@ export const analyzeJobFit = async (
       Your goal is to analyze a candidate's **Holistic Profile** against a specific "Job Description" (JD).
       The user has provided not just a resume, but potentially hobbies, values, and informal notes.
       
+      **LANGUAGE INSTRUCTION:**
+      Output MUST be in ${language === 'ko' ? 'Korean (한국어)' : 'English'}.
+      
       **CRITICAL INSTRUCTIONS:**
-      1. **Objective Scoring**: Maintain a high standard. 100% means they are the perfect unicorn candidate.
+      1. **Objective Scoring**: Maintain a high standard. 100% means they are the perfect unicorn candidate. Use TEMPERATURE 0.0 logic (Deterministic).
       2. **Parse JD**: Extract the key sections.
       3. **CONNECT THE DOTS**: This is your superpower. Look for non-obvious connections. 
          - If the user has a hobby (e.g., "Marathon Running"), connect it to soft skills (e.g., "Grit, Long-term planning") if relevant to the JD.
          - If the user lists a value (e.g., "Sustainability"), check if the company mission aligns.
       4. **Translate Experience**: If the candidate has generic experience (e.g., "Built a website"), but the JD asks for specific terms (e.g., "Architected scalable frontend using React"), identify if the candidate likely has the skill based on context and suggest how to rewrite it.
       5. **Gap Analysis**: Identify what is truly missing.
-      6. **Language**: If the input is Korean, the output must be in Korean.
 
       **ANALYSIS TASKS:**
       - Calculate scores for: Hard Skills, Domain Knowledge, Experience Depth.
@@ -130,6 +133,7 @@ export const analyzeJobFit = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
+        temperature: 0.0, // STRICT DETERMINISM
       },
     });
 
@@ -149,7 +153,8 @@ export const analyzeJobFit = async (
 
 export const generateTailoredResume = async (
   userContext: UserContextItem[],
-  jobDescription: string
+  jobDescription: string,
+  language: Language
 ): Promise<string> => {
   try {
     const model = "gemini-2.5-flash";
@@ -165,6 +170,9 @@ export const generateTailoredResume = async (
       You are an expert Resume Writer. 
       Rewrite the candidate's resume to specifically target the Job Description provided.
       
+      **LANGUAGE INSTRUCTION:**
+      The content of the resume MUST be in ${language === 'ko' ? 'Korean (한국어) - however, keep technical terms in English where appropriate' : 'English'}.
+
       **Crucial:**
       You have access to the candidate's "Holistic Profile" (Hobbies, Notes, Values). 
       If a hobby or random note is RELEVANT to the job (e.g., they play team sports and the job requires teamwork), **incorporate it professionally** into the resume (e.g., in a 'Interests' or 'Summary' section).
@@ -187,6 +195,9 @@ export const generateTailoredResume = async (
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
+      config: {
+        temperature: 0.0, // STRICT DETERMINISM
+      }
     });
 
     return response.text || "Failed to generate resume.";
@@ -196,8 +207,70 @@ export const generateTailoredResume = async (
   }
 };
 
+export const generateCoverLetter = async (
+  userContext: UserContextItem[],
+  jobDescription: string,
+  tailoredResume: string | undefined,
+  language: Language
+): Promise<string> => {
+  try {
+    const model = "gemini-2.5-flash";
+
+    const contextString = userContext.map(item => `
+      [TYPE: ${item.type.toUpperCase()}] - Title: ${item.title}
+      CONTENT:
+      ${item.content}
+    `).join('\n');
+
+    const prompt = `
+      You are an expert Career Consultant.
+      Write a compelling **Cover Letter** for the candidate applying to the job described below.
+      
+      **LANGUAGE INSTRUCTION:**
+      The cover letter MUST be written in ${language === 'ko' ? 'Korean (Business Formal - 한국어 경어체)' : 'English'}.
+
+      **INPUTS:**
+      1. **Tailored Resume**: ${tailoredResume ? "Use this as the primary source for professional narrative." : "Not provided, use general context."}
+      2. **Holistic Profile**: Use this for unique hooks (hobbies, values) that make the candidate stand out.
+      3. **Job Description**: Align the letter to the specific pain points and requirements of the role.
+
+      **INSTRUCTIONS:**
+      - **Structure**: 
+         - Hook: Why this company/role? (Connect to candidate's values/passion).
+         - Body Paragraph 1: The "Hard Skill" match (from Resume).
+         - Body Paragraph 2: The "Soft Skill/Culture" match (from Hobbies/Values).
+         - Close: Call to action.
+      - **Tone**: Professional, confident, yet authentic.
+      - **Output**: Provide ONLY the Markdown content of the letter. No conversational filler.
+
+      ${tailoredResume ? `TAILORED RESUME CONTENT:\n${tailoredResume}\n\n` : ''}
+
+      CANDIDATE HOLISTIC PROFILE:
+      ${contextString}
+
+      TARGET JOB DESCRIPTION:
+      ${jobDescription.substring(0, 15000)}
+    `;
+
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        temperature: 0.0, 
+      }
+    });
+
+    return response.text || "Failed to generate cover letter.";
+
+  } catch (error) {
+    console.error("Error generating cover letter", error);
+    throw error;
+  }
+};
+
 export const polishExperience = async (
-  rawExperience: string
+  rawExperience: string,
+  language: Language
 ): Promise<string> => {
   try {
     const model = "gemini-2.5-flash";
@@ -205,7 +278,8 @@ export const polishExperience = async (
       You are a Career Coach helping a student or junior professional.
       Convert the following "raw" or "informal" experience description into 3-5 professional, high-impact resume bullet points using the STAR method (Situation, Task, Action, Result).
       
-      If the input is Korean, output in Korean. If English, output in English.
+      **LANGUAGE INSTRUCTION:**
+      Output MUST be in ${language === 'ko' ? 'Korean (한국어)' : 'English'}.
       
       Raw Experience:
       "${rawExperience}"
@@ -219,6 +293,7 @@ export const polishExperience = async (
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
+      config: { temperature: 0.0 }
     });
 
     return response.text || "Failed to polish experience.";
@@ -228,7 +303,10 @@ export const polishExperience = async (
   }
 };
 
-export const generateUserPersona = async (userContext: UserContextItem[]): Promise<string> => {
+export const generateUserPersona = async (
+  userContext: UserContextItem[],
+  language: Language
+): Promise<string> => {
   try {
     const model = "gemini-2.5-flash";
     const contextString = userContext.map(item => `
@@ -243,6 +321,9 @@ export const generateUserPersona = async (userContext: UserContextItem[]): Promi
       
       Your goal is to describe "Who this person is" to them from a professional branding perspective.
       
+      **LANGUAGE INSTRUCTION:**
+      Output MUST be in ${language === 'ko' ? 'Korean (한국어)' : 'English'}.
+
       **Output Structure (Markdown):**
       1. **Professional Headline**: A 1-sentence branding statement.
       2. **Key Strengths**: 3-4 distinct professional superpowers.
@@ -256,6 +337,7 @@ export const generateUserPersona = async (userContext: UserContextItem[]): Promi
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
+      config: { temperature: 0.0 }
     });
 
     return response.text || "Could not generate persona.";
@@ -268,7 +350,6 @@ export const generateUserPersona = async (userContext: UserContextItem[]): Promi
 export const extractJobFromUrl = async (url: string): Promise<{ title: string; company: string; description: string }> => {
   try {
     const model = "gemini-2.5-flash";
-    // Updated prompt to be more "Search" oriented rather than "Browse" oriented to avoid tool refusal
     const prompt = `
       I need to find the job description details for the job posting located at this URL: ${url}
       
@@ -288,12 +369,12 @@ export const extractJobFromUrl = async (url: string): Promise<{ title: string; c
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
+        temperature: 0.0,
       },
     });
 
     const text = response.text || "";
     
-    // Basic parsing of the expected format
     const titleMatch = text.match(/TITLE:\s*(.+)/i);
     const companyMatch = text.match(/COMPANY:\s*(.+)/i);
     
@@ -304,7 +385,6 @@ export const extractJobFromUrl = async (url: string): Promise<{ title: string; c
     if (descIndex !== -1) {
         description = text.substring(descIndex + descMarker.length).trim();
     } else {
-        // Fallback: just return whole text if format isn't perfect
         description = text;
     }
 
@@ -336,7 +416,8 @@ export const extractTextFromPdf = async (base64Data: string, mimeType: string): 
         {
           text: "Extract all the text content from this document accurately. Preserve the structure where possible."
         }
-      ]
+      ],
+      config: { temperature: 0.0 }
     });
 
     return response.text || "";

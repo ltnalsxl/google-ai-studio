@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import { Sparkles, ArrowRight, Copy, Check } from 'lucide-react';
 import { polishExperience } from '../services/geminiService';
+import { Language } from '../types';
 
-export const ExperienceHelper: React.FC = () => {
+interface ExperienceHelperProps {
+  language: Language;
+}
+
+export const ExperienceHelper: React.FC<ExperienceHelperProps> = ({ language }) => {
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -13,7 +18,7 @@ export const ExperienceHelper: React.FC = () => {
     setIsLoading(true);
     setOutput('');
     try {
-      const result = await polishExperience(input);
+      const result = await polishExperience(input, language);
       setOutput(result);
     } catch (error) {
       console.error(error);

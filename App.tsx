@@ -1,11 +1,12 @@
+
 import React, { useState, useMemo } from 'react';
 import { ProfileManager } from './components/ProfileManager';
 import { AddJobForm } from './components/AddJobForm';
 import { JobCard } from './components/JobCard';
 import { ExperienceHelper } from './components/ExperienceHelper';
-import { Job, JobStatus, ApplicationStatus, UserContextItem } from './types';
-import { analyzeJobFit, generateTailoredResume } from './services/geminiService';
-import { Briefcase, Sparkles, PenTool, LayoutGrid, User, Filter, XCircle } from 'lucide-react';
+import { Job, JobStatus, ApplicationStatus, UserContextItem, Language } from './types';
+import { analyzeJobFit, generateTailoredResume, generateCoverLetter } from './services/geminiService';
+import { Briefcase, Sparkles, LayoutGrid, User, XCircle, Languages } from 'lucide-react';
 
 export default function App() {
   const [userContext, setUserContext] = useState<UserContextItem[]>([]);
@@ -13,13 +14,18 @@ export default function App() {
   const [showTools, setShowTools] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [filterStatus, setFilterStatus] = useState<ApplicationStatus | null>(null);
+  const [language, setLanguage] = useState<Language>('en');
 
   const handleAddItem = (item: UserContextItem) => {
-    setUserContext(prev => [...prev, item]);
+    setUserContext(prev => [...prev, { ...item, isActive: true }]);
   };
 
   const handleRemoveItem = (id: string) => {
     setUserContext(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleToggleItem = (id: string) => {
+    setUserContext(prev => prev.map(item => item.id === id ? { ...item, isActive: !item.isActive } : item));
   };
 
   const handleAddJob = async (title: string, company: string, description: string, autoAnalyze: boolean) => {
@@ -30,25 +36,29 @@ export default function App() {
       title,
       company,
       description,
-      status: autoAnalyze ? JobStatus.ANALYZING : JobStatus.IDLE, // Set status immediately
+      status: autoAnalyze ? JobStatus.ANALYZING : JobStatus.IDLE,
       applicationStatus: ApplicationStatus.NOT_APPLIED,
       createdAt: Date.now(),
     };
     
     setJobs(prev => [newJob, ...prev]);
 
-    if (autoAnalyze && userContext.length > 0) {
-        await performAnalysis(newJobId, userContext, description);
+    // Filter only active context items for analysis
+    const activeContext = userContext.filter(i => i.isActive);
+
+    if (autoAnalyze && activeContext.length > 0) {
+        await performAnalysis(newJobId, activeContext, description);
     }
   };
 
   const performAnalysis = async (jobId: string, context: UserContextItem[], jobDescription: string) => {
     try {
-        const result = await analyzeJobFit(context, jobDescription);
+        const result = await analyzeJobFit(context, jobDescription, language);
         setJobs(prev => prev.map(j => j.id === jobId ? { 
             ...j, 
             status: JobStatus.COMPLETED,
-            result: result 
+            result: result,
+            usedContextSnapshot: context // Snapshot the context used for this run
         } : j));
     } catch (error) {
         console.error(error);
@@ -65,8 +75,12 @@ export default function App() {
   }
 
   const handleAnalyzeJob = async (id: string) => {
-    if (userContext.length === 0) {
-        alert("Please add at least one Resume or Context item to your profile first!");
+    const activeContext = userContext.filter(i => i.isActive);
+
+    if (activeContext.length === 0) {
+        alert(language === 'ko' 
+            ? "활성화된 프로필 항목이 없습니다. 최소 하나 이상의 이력서나 메모를 활성화해주세요!" 
+            : "No active profile items found. Please activate at least one Resume or Context item!");
         return;
     }
 
@@ -74,21 +88,44 @@ export default function App() {
     
     const jobToAnalyze = jobs.find(j => j.id === id);
     if (jobToAnalyze) {
-        await performAnalysis(id, userContext, jobToAnalyze.description);
+        await performAnalysis(id, activeContext, jobToAnalyze.description);
     }
   };
 
   const handleGenerateTailoredResume = async (id: string) => {
-    if (userContext.length === 0) return;
+    const activeContext = userContext.filter(i => i.isActive);
+    if (activeContext.length === 0) return;
+    
     const jobToAnalyze = jobs.find(j => j.id === id);
     if (!jobToAnalyze) return;
 
     try {
-        const tailoredContent = await generateTailoredResume(userContext, jobToAnalyze.description);
+        const tailoredContent = await generateTailoredResume(activeContext, jobToAnalyze.description, language);
         setJobs(prev => prev.map(j => j.id === id ? { ...j, tailoredResume: tailoredContent } : j));
     } catch (error) {
         console.error(error);
         alert("Failed to generate tailored resume.");
+    }
+  };
+
+  const handleGenerateCoverLetter = async (id: string) => {
+    const activeContext = userContext.filter(i => i.isActive);
+    if (activeContext.length === 0) return;
+    
+    const jobToAnalyze = jobs.find(j => j.id === id);
+    if (!jobToAnalyze) return;
+
+    try {
+        const coverLetter = await generateCoverLetter(
+            activeContext, 
+            jobToAnalyze.description, 
+            jobToAnalyze.tailoredResume, 
+            language
+        );
+        setJobs(prev => prev.map(j => j.id === id ? { ...j, coverLetter: coverLetter } : j));
+    } catch (error) {
+        console.error(error);
+        alert("Failed to generate cover letter.");
     }
   };
 
@@ -108,6 +145,20 @@ export default function App() {
 
   const filteredJobs = filterStatus ? jobs.filter(j => j.applicationStatus === filterStatus) : jobs;
 
+  // UI Labels based on Language
+  const labels = {
+      tools: language === 'ko' ? '도구' : 'Tools',
+      dots: language === 'ko' ? '컨텍스트' : 'Dots',
+      pipeline: language === 'ko' ? '파이프라인 현황' : 'Pipeline Dashboard',
+      allJobs: language === 'ko' ? '모든 공고' : 'All Jobs',
+      noHistory: language === 'ko' ? '분석 이력이 여기에 표시됩니다.' : 'Your analysis history will appear here.',
+      clearFilter: language === 'ko' ? '필터 해제' : 'Clear Filter',
+      welcomeTitle: 'ResumeFit',
+      welcomeSubtitle: language === 'ko' 
+          ? '모든 점을 연결하세요. 이력서, 취미, 가치관을 업로드하여 완벽한 직무 적합도를 찾으세요.'
+          : 'We connect the dots. Upload your resume, hobbies, and values to find your perfect fit.',
+  };
+
   // --- VIEW 1: LANDING (NO CONTEXT) ---
   if (userContext.length === 0) {
     return (
@@ -118,13 +169,31 @@ export default function App() {
                         <Briefcase className="w-8 h-8 text-white" />
                     </div>
                     <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">ResumeFit<span className="text-indigo-600">.ai</span></h1>
-                    <p className="text-lg text-slate-600 max-w-md mx-auto">
-                        We connect the dots. Upload your resume, hobbies, and values to find your perfect fit.
+                    <p className="text-lg text-slate-600 max-w-md mx-auto leading-relaxed">
+                        {labels.welcomeSubtitle}
                     </p>
+                    
+                     {/* Language Toggle for Landing */}
+                     <div className="flex justify-center">
+                        <button 
+                            onClick={() => setLanguage(prev => prev === 'en' ? 'ko' : 'en')}
+                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                        >
+                            <Languages className="w-4 h-4" />
+                            {language === 'en' ? 'ENG' : '한국어'}
+                        </button>
+                    </div>
                 </div>
                 
                 <div className="bg-white p-1 rounded-2xl shadow-xl">
-                     <ProfileManager items={userContext} onAddItem={handleAddItem} onRemoveItem={handleRemoveItem} variant="full" />
+                     <ProfileManager 
+                        items={userContext} 
+                        onAddItem={handleAddItem} 
+                        onRemoveItem={handleRemoveItem} 
+                        onToggleItem={handleToggleItem}
+                        variant="full" 
+                        language={language} 
+                     />
                 </div>
 
                 <div className="flex items-center justify-center gap-8 text-sm text-slate-400">
@@ -158,15 +227,26 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
+             {/* Language Toggle */}
+             <button 
+                onClick={() => setLanguage(prev => prev === 'en' ? 'ko' : 'en')}
+                className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors"
+             >
+                 <Languages className="w-4 h-4" />
+                 {language === 'en' ? 'ENG' : '한국어'}
+             </button>
+
+             <div className="h-6 w-px bg-slate-200 mx-0"></div>
+
              <button 
                 onClick={() => setShowTools(!showTools)}
                 className={`text-sm font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-2 ${showTools ? 'bg-amber-100 text-amber-800' : 'text-slate-600 hover:bg-slate-100'}`}
              >
                 <Sparkles className="w-4 h-4" />
-                <span className="hidden sm:inline">Tools</span>
+                <span className="hidden sm:inline">{labels.tools}</span>
              </button>
 
-             <div className="h-6 w-px bg-slate-200 mx-2"></div>
+             <div className="h-6 w-px bg-slate-200 mx-0"></div>
 
              <button 
                 onClick={() => setShowProfile(!showProfile)}
@@ -175,7 +255,7 @@ export default function App() {
                 <div className="bg-slate-100 p-1 rounded-full">
                   <User className="w-4 h-4 text-slate-600" />
                 </div>
-                <span className="text-sm font-bold text-slate-700">{userContext.length} Dots</span>
+                <span className="text-sm font-bold text-slate-700">{userContext.length} {labels.dots}</span>
              </button>
           </div>
         </div>
@@ -186,14 +266,21 @@ export default function App() {
         {/* Profile Drawer */}
         {showProfile && (
             <div className="mb-8 animate-in slide-in-from-top-4 duration-300">
-                <ProfileManager items={userContext} onAddItem={handleAddItem} onRemoveItem={handleRemoveItem} variant="full" />
+                <ProfileManager 
+                    items={userContext} 
+                    onAddItem={handleAddItem} 
+                    onRemoveItem={handleRemoveItem} 
+                    onToggleItem={handleToggleItem}
+                    variant="full" 
+                    language={language} 
+                />
             </div>
         )}
 
         {/* Tools Drawer */}
         {showTools && (
             <div className="mb-8 animate-in slide-in-from-top-4 duration-300">
-                <ExperienceHelper />
+                <ExperienceHelper language={language} />
             </div>
         )}
 
@@ -207,18 +294,18 @@ export default function App() {
             <div className="mt-12 mb-8">
                  <div className="flex items-center gap-4 mb-6">
                     <div className="h-px flex-1 bg-slate-200"></div>
-                    <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Pipeline Dashboard</span>
+                    <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">{labels.pipeline}</span>
                     <div className="h-px flex-1 bg-slate-200"></div>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                     {[
-                        { status: ApplicationStatus.NOT_APPLIED, label: 'Inbox', color: 'bg-white border-slate-200 text-slate-500' },
-                        { status: ApplicationStatus.WISHLIST, label: 'Wishlist', color: 'bg-pink-50 border-pink-200 text-pink-600' },
-                        { status: ApplicationStatus.APPLIED, label: 'Applied', color: 'bg-blue-50 border-blue-200 text-blue-700' },
-                        { status: ApplicationStatus.INTERVIEWING, label: 'Interviewing', color: 'bg-purple-50 border-purple-200 text-purple-700' },
-                        { status: ApplicationStatus.OFFER, label: 'Offer', color: 'bg-green-50 border-green-200 text-green-700' },
-                        { status: ApplicationStatus.REJECTED, label: 'Rejected', color: 'bg-red-50 border-red-200 text-red-700' },
+                        { status: ApplicationStatus.NOT_APPLIED, label: language === 'ko' ? '수신함' : 'Inbox', color: 'bg-white border-slate-200 text-slate-500' },
+                        { status: ApplicationStatus.WISHLIST, label: language === 'ko' ? '관심' : 'Wishlist', color: 'bg-pink-50 border-pink-200 text-pink-600' },
+                        { status: ApplicationStatus.APPLIED, label: language === 'ko' ? '지원완료' : 'Applied', color: 'bg-blue-50 border-blue-200 text-blue-700' },
+                        { status: ApplicationStatus.INTERVIEWING, label: language === 'ko' ? '면접중' : 'Interviewing', color: 'bg-purple-50 border-purple-200 text-purple-700' },
+                        { status: ApplicationStatus.OFFER, label: language === 'ko' ? '합격/오퍼' : 'Offer', color: 'bg-green-50 border-green-200 text-green-700' },
+                        { status: ApplicationStatus.REJECTED, label: language === 'ko' ? '불합격' : 'Rejected', color: 'bg-red-50 border-red-200 text-red-700' },
                     ].map((stat) => (
                         <button
                             key={stat.status}
@@ -242,7 +329,7 @@ export default function App() {
                             className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-white border border-slate-200 px-4 py-2 rounded-full hover:bg-slate-50 transition-colors"
                         >
                             <XCircle className="w-4 h-4" />
-                            Clear Filter: {filterStatus.replace('_', ' ')}
+                            {labels.clearFilter}: {filterStatus.replace('_', ' ')}
                         </button>
                     </div>
                 )}
@@ -254,7 +341,7 @@ export default function App() {
             <div className="space-y-6">
                 <div className="flex justify-between items-end px-2">
                     <h2 className="text-lg font-bold text-slate-900">
-                        {filterStatus ? `Jobs: ${filterStatus.toLowerCase().replace('_', ' ')}` : 'All Jobs'}
+                        {filterStatus ? `Filtered: ${filterStatus}` : labels.allJobs}
                     </h2>
                     <span className="text-sm text-slate-500 font-medium">{filteredJobs.length} jobs</span>
                 </div>
@@ -268,6 +355,8 @@ export default function App() {
                             onDelete={handleDeleteJob}
                             onStatusChange={handleStatusChange}
                             onGenerateTailoredResume={handleGenerateTailoredResume}
+                            onGenerateCoverLetter={handleGenerateCoverLetter}
+                            language={language}
                         />
                     ))}
                 </div>
@@ -276,7 +365,7 @@ export default function App() {
 
         {jobs.length === 0 && (
             <div className="mt-12 text-center text-slate-400">
-                <p>Your analysis history will appear here.</p>
+                <p>{labels.noHistory}</p>
             </div>
         )}
 

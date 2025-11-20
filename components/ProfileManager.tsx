@@ -1,6 +1,7 @@
+
 import React, { useRef, useState } from 'react';
-import { Upload, FileText, X, Plus, Heart, Lightbulb, Coffee, Book, Sparkles, Eye, ChevronRight, Loader2 } from 'lucide-react';
-import { UserContextItem, ContextType } from '../types';
+import { Upload, FileText, X, Plus, Heart, Lightbulb, Coffee, Book, Sparkles, Eye, ChevronRight, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { UserContextItem, ContextType, Language } from '../types';
 import ReactMarkdown from 'react-markdown';
 import { generateUserPersona, extractTextFromPdf } from '../services/geminiService';
 
@@ -8,14 +9,18 @@ interface ProfileManagerProps {
   items: UserContextItem[];
   onAddItem: (item: UserContextItem) => void;
   onRemoveItem: (id: string) => void;
+  onToggleItem?: (id: string) => void; // New prop
   variant?: 'full' | 'compact';
+  language: Language;
 }
 
 export const ProfileManager: React.FC<ProfileManagerProps> = ({ 
   items, 
   onAddItem, 
   onRemoveItem,
-  variant = 'full' 
+  onToggleItem,
+  variant = 'full',
+  language
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -35,6 +40,22 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
   const [isAnalyzingPersona, setIsAnalyzingPersona] = useState(false);
   const [persona, setPersona] = useState<string | null>(null);
 
+  // Translations
+  const t = {
+      myContext: language === 'ko' ? '나의 컨텍스트' : 'My Context',
+      uploadPdf: language === 'ko' ? 'PDF 업로드' : 'Upload PDF',
+      pasteText: language === 'ko' ? '텍스트 붙여넣기' : 'Paste Full Text',
+      addNote: language === 'ko' ? '메모 추가' : 'Add Note',
+      aiPersona: language === 'ko' ? 'AI 프로필 분석' : 'AI Profile Summary',
+      analyzeMe: language === 'ko' ? '나를 분석해줘' : 'Analyze Me',
+      analyzing: language === 'ko' ? '분석중...' : 'Analyzing...',
+      reading: language === 'ko' ? '읽는중...' : 'Reading...',
+      refresh: language === 'ko' ? '분석 새로고침' : 'Refresh Analysis',
+      noContext: language === 'ko' ? '아직 추가된 내용이 없습니다.' : 'No context added yet.',
+      active: language === 'ko' ? '사용중' : 'Active',
+      inactive: language === 'ko' ? '비활성' : 'Inactive',
+  };
+
   // File Upload Handler
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -46,7 +67,6 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
         let content = "";
         
         if (file.type === 'application/pdf') {
-            // Handle PDF via Gemini Vision/Multimodal
             const base64 = await new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result as string);
@@ -54,12 +74,10 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                 reader.readAsDataURL(file);
             });
             
-            // Strip data URL prefix (e.g., "data:application/pdf;base64,")
             const base64Data = base64.split(',')[1];
             content = await extractTextFromPdf(base64Data, file.type);
 
         } else {
-             // Handle Text/MD
             content = await new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = (event) => resolve(event.target?.result as string);
@@ -73,7 +91,8 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
             type: 'resume',
             title: file.name,
             content: content,
-            dateAdded: Date.now()
+            dateAdded: Date.now(),
+            isActive: true
         });
 
     } catch (error) {
@@ -85,7 +104,6 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
     }
   };
 
-  // Text Note Handler
   const handleAddNote = () => {
     if (!noteContent.trim()) return;
     onAddItem({
@@ -93,7 +111,8 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
       type: noteType,
       title: noteTitle || `${noteType.charAt(0).toUpperCase() + noteType.slice(1)}`,
       content: noteContent,
-      dateAdded: Date.now()
+      dateAdded: Date.now(),
+      isActive: true
     });
     setNoteContent('');
     setNoteTitle('');
@@ -101,10 +120,14 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
   };
 
   const handleGeneratePersona = async () => {
-      if (items.length === 0) return;
+      const activeItems = items.filter(i => i.isActive);
+      if (activeItems.length === 0) {
+          alert(language === 'ko' ? '활성화된 항목이 없습니다.' : 'No active items selected.');
+          return;
+      }
       setIsAnalyzingPersona(true);
       try {
-          const result = await generateUserPersona(items);
+          const result = await generateUserPersona(activeItems, language);
           setPersona(result);
       } catch (error) {
           console.error(error);
@@ -123,74 +146,68 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
     }
   };
 
-  // COMPACT MODE (Header)
+  // COMPACT MODE
   if (variant === 'compact') {
     return (
       <div className="flex items-center gap-2">
          <div className="flex -space-x-2 overflow-hidden mr-2">
-            {items.slice(0, 3).map((item) => (
+            {items.filter(i => i.isActive).slice(0, 3).map((item) => (
                 <div key={item.id} className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center" title={item.title}>
                     {getIcon(item.type)}
                 </div>
             ))}
-            {items.length > 3 && (
-                 <div className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500">
-                    +{items.length - 3}
-                 </div>
-            )}
          </div>
          <button 
             onClick={() => setIsAddingNote(true)} 
             className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-2 rounded-lg hover:bg-indigo-100 transition-colors"
          >
-            Edit Profile
+            {language === 'ko' ? '프로필 수정' : 'Edit Profile'}
          </button>
       </div>
     );
   }
 
-  // FULL MODE (Landing / Dashboard Drawer)
+  // FULL MODE
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden w-full max-w-3xl mx-auto transition-all">
       {/* Header Section */}
       <div className="p-6 bg-slate-50/50 border-b border-slate-200 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
          <div>
             <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                My Context
+                {t.myContext}
                 <span className="bg-slate-200 text-slate-600 text-xs px-2 py-0.5 rounded-full">{items.length}</span>
             </h3>
-            <p className="text-sm text-slate-500">Upload resumes, hobbies, or values — we connect the dots.</p>
+            <p className="text-sm text-slate-500">
+                {language === 'ko' ? '이력서, 취미, 가치관을 업로드하세요.' : 'Upload resumes, hobbies, or values — we connect the dots.'}
+            </p>
          </div>
          <div className="flex flex-wrap gap-2">
-             {/* Upload PDF Button */}
              <button 
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
                 className="flex items-center gap-2 text-xs font-bold bg-white border border-slate-200 hover:border-indigo-500 text-slate-700 px-3 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-70"
              >
                 {isUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />} 
-                {isUploading ? 'Reading...' : 'Upload PDF'}
+                {isUploading ? t.reading : t.uploadPdf}
              </button>
 
-             {/* Paste Full Text Button */}
              <button 
                 onClick={() => { 
                     setIsAddingNote(true); 
                     setNoteType('resume'); 
-                    setNoteTitle('Full Text Resume'); 
+                    setNoteTitle(language === 'ko' ? '텍스트 이력서' : 'Full Text Resume'); 
                     setNoteContent(''); 
                 }}
                 className="flex items-center gap-2 text-xs font-bold bg-indigo-600 text-white border border-indigo-600 px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
              >
-                <FileText className="w-3 h-3" /> Paste Full Text
+                <FileText className="w-3 h-3" /> {t.pasteText}
              </button>
 
-             {/* Add Quick Note Button */}
              <button 
                 onClick={() => { setIsAddingNote(true); setNoteType('hobby'); setNoteTitle(''); setNoteContent(''); }}
                 className="flex items-center gap-2 text-xs font-bold bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
              >
-                <Plus className="w-3 h-3" /> Add Note
+                <Plus className="w-3 h-3" /> {t.addNote}
              </button>
          </div>
       </div>
@@ -200,7 +217,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
           <div className="flex items-center justify-between mb-4">
                <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 uppercase tracking-wide">
                    <Sparkles className="w-4 h-4 text-amber-500" />
-                   AI Profile Summary
+                   {t.aiPersona}
                </h4>
                {!persona && items.length > 0 && (
                    <button 
@@ -208,7 +225,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                     disabled={isAnalyzingPersona}
                     className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
                    >
-                       {isAnalyzingPersona ? 'Analyzing...' : 'Analyze Me'} <ChevronRight className="w-3 h-3" />
+                       {isAnalyzingPersona ? t.analyzing : t.analyzeMe} <ChevronRight className="w-3 h-3" />
                    </button>
                )}
           </div>
@@ -223,15 +240,15 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                         onClick={handleGeneratePersona} 
                         className="text-xs text-slate-400 hover:text-indigo-600 underline"
                        >
-                           Refresh Analysis
+                           {t.refresh}
                        </button>
                    </div>
               </div>
           ) : (
               <div className="bg-slate-50 border border-dashed border-slate-200 p-4 rounded-xl text-center text-xs text-slate-400">
                   {items.length > 0 
-                    ? "Click 'Analyze Me' to see how the AI interprets your holistic profile."
-                    : "Add some items (Resume, Hobbies) to generate your unique persona."
+                    ? (language === 'ko' ? "'나를 분석해줘'를 눌러 AI가 보는 나의 프로필을 확인하세요." : "Click 'Analyze Me' to see how the AI interprets your holistic profile.")
+                    : (language === 'ko' ? "이력서나 취미를 추가하여 나만의 페르소나를 생성하세요." : "Add some items (Resume, Hobbies) to generate your unique persona.")
                   }
               </div>
           )}
@@ -239,7 +256,6 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
 
       {/* Items List Section */}
       <div className="p-6">
-         {/* Input Form */}
          {isAddingNote && (
             <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-indigo-100 animate-in fade-in slide-in-from-top-2">
                 <div className="flex gap-2 mb-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -255,13 +271,13 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                 </div>
                 <input 
                     className="w-full mb-2 px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Title (e.g., My Core Values)"
+                    placeholder="Title"
                     value={noteTitle}
                     onChange={e => setNoteTitle(e.target.value)}
                 />
                 <textarea 
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-indigo-500 min-h-[150px]"
-                    placeholder="Type your details here... (e.g., Paste your full resume text, or describe your experience)"
+                    placeholder="Content..."
                     value={noteContent}
                     onChange={e => setNoteContent(e.target.value)}
                 />
@@ -272,42 +288,59 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
             </div>
          )}
 
-         {/* List */}
          {items.length === 0 ? (
              <div className="text-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                 <p>No context added yet. Upload a resume or add a hobby!</p>
+                 <p>{t.noContext}</p>
              </div>
          ) : (
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                  {items.map(item => (
                      <div 
                         key={item.id} 
-                        className="group relative bg-white p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer"
+                        className={`group relative bg-white p-4 rounded-xl border transition-all cursor-pointer ${
+                            item.isActive 
+                            ? 'border-slate-200 hover:border-indigo-300 hover:shadow-md' 
+                            : 'border-slate-100 opacity-60 bg-slate-50'
+                        }`}
                         onClick={() => setSelectedItem(item)}
                      >
                          <div className="flex items-start gap-3">
-                             <div className="p-2.5 bg-slate-50 rounded-lg group-hover:bg-indigo-50 transition-colors">
+                             <div className={`p-2.5 rounded-lg transition-colors ${item.isActive ? 'bg-slate-50 group-hover:bg-indigo-50' : 'bg-slate-100'}`}>
                                  {getIcon(item.type)}
                              </div>
                              <div className="flex-1 min-w-0">
-                                 <div className="flex justify-between items-start">
-                                     <h4 className="font-bold text-sm text-slate-800 truncate pr-4">{item.title}</h4>
-                                     <button 
-                                        onClick={(e) => { e.stopPropagation(); onRemoveItem(item.id); }}
-                                        className="text-slate-300 hover:text-red-500 transition-colors p-1"
-                                        title="Delete"
-                                     >
-                                        <X className="w-3 h-3" />
-                                     </button>
+                                 <div className="flex justify-between items-start mb-1">
+                                     <h4 className={`font-bold text-sm truncate pr-2 ${item.isActive ? 'text-slate-800' : 'text-slate-500 line-through'}`}>
+                                         {item.title}
+                                     </h4>
+                                     
+                                     <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                         {onToggleItem && (
+                                            <button
+                                                onClick={() => onToggleItem(item.id)}
+                                                className={`p-1 rounded-md transition-colors ${item.isActive ? 'text-indigo-600 hover:bg-indigo-50' : 'text-slate-400 hover:bg-slate-200'}`}
+                                                title={item.isActive ? "Deactivate (Exclude from analysis)" : "Activate"}
+                                            >
+                                                {item.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+                                            </button>
+                                         )}
+                                         <button 
+                                            onClick={() => onRemoveItem(item.id)}
+                                            className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                                            title="Delete"
+                                         >
+                                            <X className="w-3 h-3" />
+                                         </button>
+                                     </div>
                                  </div>
-                                 <p className="text-xs text-slate-500 line-clamp-2 mt-1.5">{item.content.substring(0, 100)}</p>
+                                 <p className="text-xs text-slate-500 line-clamp-2 mt-1">{item.content.substring(0, 100)}</p>
                                  
                                  <div className="flex items-center justify-between mt-3">
-                                    <span className="inline-block text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 px-1.5 py-0.5 rounded">
+                                    <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${item.isActive ? 'text-slate-400 bg-slate-50' : 'text-slate-400 bg-transparent'}`}>
                                         {item.type}
                                     </span>
-                                    <span className="text-[10px] text-indigo-400 font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                        View <Eye className="w-3 h-3" />
+                                    <span className={`text-[10px] font-medium flex items-center gap-1 ${item.isActive ? 'text-indigo-400 opacity-0 group-hover:opacity-100' : 'text-slate-400 opacity-50'}`}>
+                                        {item.isActive ? t.active : t.inactive}
                                     </span>
                                  </div>
                              </div>

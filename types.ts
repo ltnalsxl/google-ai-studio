@@ -1,3 +1,4 @@
+
 export enum JobStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
@@ -16,12 +17,15 @@ export enum ApplicationStatus {
 
 export type ContextType = 'resume' | 'experience' | 'hobby' | 'value' | 'note';
 
+export type Language = 'en' | 'ko';
+
 export interface UserContextItem {
   id: string;
   type: ContextType;
   title: string; // e.g., "Master Resume", "Hiking Hobby", "My Design Philosophy"
   content: string;
   dateAdded: number;
+  isActive: boolean; // New: Version control
 }
 
 export interface ResumeData {
@@ -75,5 +79,7 @@ export interface Job {
   applicationStatus: ApplicationStatus;
   result?: AnalysisResult;
   tailoredResume?: string; 
+  coverLetter?: string; 
   createdAt: number;
+  usedContextSnapshot?: UserContextItem[]; // New: History of which context was used
 }
