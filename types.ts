@@ -7,10 +7,27 @@ export enum JobStatus {
 
 export enum ApplicationStatus {
   NOT_APPLIED = 'NOT_APPLIED',
+  WISHLIST = 'WISHLIST',
   APPLIED = 'APPLIED',
   INTERVIEWING = 'INTERVIEWING',
   REJECTED = 'REJECTED',
   OFFER = 'OFFER',
+}
+
+export type ContextType = 'resume' | 'experience' | 'hobby' | 'value' | 'note';
+
+export interface UserContextItem {
+  id: string;
+  type: ContextType;
+  title: string; // e.g., "Master Resume", "Hiking Hobby", "My Design Philosophy"
+  content: string;
+  dateAdded: number;
+}
+
+export interface ResumeData {
+  fileName: string;
+  content: string;
+  lastUpdated: number;
 }
 
 export interface CategoryScore {
@@ -26,10 +43,18 @@ export interface TailoringSuggestion {
   example?: string;
 }
 
+export interface JDStructure {
+  summary: string;
+  responsibilities: string[];
+  qualifications: string[];
+  preferred: string[];
+}
+
 export interface AnalysisResult {
   overallScore: number;
   fitLabel: 'High Fit' | 'Medium Fit' | 'Low Fit' | 'Overstretch';
   summary: string;
+  jdStructure: JDStructure; // Parsed JD sections
   categoryScores: CategoryScore[];
   levelFit: {
     label: string; // e.g., "Senior Level", "Entry Level"
@@ -38,6 +63,7 @@ export interface AnalysisResult {
   missingKeywords: string[];
   strongMatches: string[];
   tailoringGuide: TailoringSuggestion[];
+  creativeConnections?: string[]; // New: Connecting dots between hobbies/values and JD
 }
 
 export interface Job {
@@ -48,11 +74,6 @@ export interface Job {
   status: JobStatus;
   applicationStatus: ApplicationStatus;
   result?: AnalysisResult;
+  tailoredResume?: string; 
   createdAt: number;
-}
-
-export interface ResumeData {
-  fileName: string;
-  content: string;
-  lastUpdated: number;
 }
